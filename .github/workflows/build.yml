@@ -1,4 +1,4 @@
-name: Build Flutter APK & Send to Telegram
+name: Build Android APK & Send to Telegram
 
 on:
   workflow_dispatch:
@@ -21,51 +21,51 @@ on:
       app_name:
         description: 'Nama Aplikasi'
         required: false
-        default: 'Flutter App'
+        default: 'Android App'
+        type: string
 
       user_id:
         description: 'ID Telegram User'
         required: false
+        type: string
 
       build_type:
         description: 'Debug or Release'
         required: false
         default: 'Debug'
+        type: string
+
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
+
       # ==========================================
       # CHECKOUT
       # ==========================================
+
       - name: Checkout Repository
         uses: actions/checkout@v4
+
 
       # ==========================================
       # JAVA
       # ==========================================
+
       - name: Setup Java JDK
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      # ==========================================
-      # FLUTTER
-      # ==========================================
-      - name: Setup Flutter SDK
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.41.9'
-          channel: 'stable'
-          cache: true
 
       # ==========================================
-      # DOWNLOAD PROJECT
+      # DOWNLOAD PROJECT ZIP
       # ==========================================
-      - name: Download & Extract Project ZIP
+
+      - name: Download & Extract Android Project
         env:
           ZIP_URL: ${{ github.event.inputs.zip_url }}
           ZIP_PATH: ${{ github.event.inputs.zip_path }}
@@ -73,204 +73,239 @@ jobs:
           set -e
 
           echo "=========================================="
-          echo "DOWNLOAD / LOCATE FLUTTER PROJECT"
+          echo "DOWNLOAD ANDROID PROJECT"
           echo "=========================================="
 
           if [ -n "$ZIP_URL" ] && [ "$ZIP_URL" != "null" ]; then
-            echo "Downloading from URL..."
+
+            echo "Downloading ZIP from URL..."
+
             curl -fL "$ZIP_URL" -o project.zip
+
           elif [ -n "$ZIP_PATH" ] && [ "$ZIP_PATH" != "null" ]; then
-            echo "Using uploaded zip path from repository: $ZIP_PATH"
+
+            echo "Using ZIP from repository..."
+
             cp "$ZIP_PATH" project.zip
+
           else
-            echo "ERROR: Tidak ada ZIP URL atau ZIP Path yang diberikan!"
+
+            echo "ERROR: Tidak ada ZIP URL atau ZIP Path!"
             exit 1
+
           fi
 
-          echo "Extracting ZIP..."
+
+          echo ""
+          echo "=========================================="
+          echo "EXTRACTING PROJECT"
+          echo "=========================================="
 
           rm -rf my_project
           mkdir -p my_project
 
           unzip -q project.zip -d my_project
 
-          echo "Searching for pubspec.yaml..."
 
-          PROJECT_DIR=$(find my_project -type f -name "pubspec.yaml" -print -quit)
+          echo ""
+          echo "=========================================="
+          echo "SEARCHING GRADLE PROJECT"
+          echo "=========================================="
 
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: pubspec.yaml tidak ditemukan!"
+          # Cari settings.gradle atau settings.gradle.kts
+
+          PROJECT_FILE=$(find my_project \
+            -type f \
+            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+            -print -quit)
+
+          if [ -z "$PROJECT_FILE" ]; then
+
+            echo "ERROR: Project Android Gradle tidak ditemukan!"
+            echo "settings.gradle tidak ditemukan."
+
             exit 1
+
           fi
 
-          PROJECT_DIR=$(dirname "$PROJECT_DIR")
+
+          PROJECT_DIR=$(dirname "$PROJECT_FILE")
+
+          echo ""
+          echo "PROJECT DIRECTORY:"
+          echo "$PROJECT_DIR"
+
+          echo "$PROJECT_DIR" > project_path.txt
+
+
+      # ==========================================
+      # SHOW PROJECT STRUCTURE
+      # ==========================================
+
+      - name: Check Project Structure
+        run: |
+          PROJECT_DIR=$(cat project_path.txt)
+
+          echo "=========================================="
+          echo "PROJECT STRUCTURE"
+          echo "=========================================="
+
+          ls -la "$PROJECT_DIR"
+
+          echo ""
+          echo "APP DIRECTORY:"
+
+          ls -la "$PROJECT_DIR/app" || true
+
+
+      # ==========================================
+      # FIX GRADLE PERMISSION
+      # ==========================================
+
+      - name: Setup Gradle Permission
+        run: |
+          PROJECT_DIR=$(cat project_path.txt)
 
           cd "$PROJECT_DIR"
 
-          echo "Project directory:"
-          pwd
-
-          # ==========================================
-          # PUBSPEC
-          # ==========================================
-
-          echo ""
           echo "=========================================="
-          echo "CONFIGURING FONT AWESOME"
+          echo "SETUP GRADLE"
           echo "=========================================="
 
-          rm -f pubspec.lock
+          if [ -f "./gradlew" ]; then
 
-          # Hapus Font Awesome versi lama
-          sed -i '/^[[:space:]]*font_awesome_flutter:/d' pubspec.yaml
+            chmod +x gradlew
 
-          # Gunakan versi EXACT 10.12.0
-          sed -i '/^dependencies:/a\  font_awesome_flutter: 10.12.0' pubspec.yaml
-
-          echo ""
-          echo "Font Awesome configuration:"
-
-          grep -n "font_awesome_flutter" pubspec.yaml
-
-          # ==========================================
-          # ANDROID NDK
-          # ==========================================
-
-          echo ""
-          echo "=========================================="
-          echo "CONFIGURING ANDROID NDK"
-          echo "=========================================="
-
-          APP_GRADLE="android/app/build.gradle"
-          APP_GRADLE_KTS="android/app/build.gradle.kts"
-
-          if [ -f "$APP_GRADLE" ]; then
-
-            if grep -q "ndkVersion" "$APP_GRADLE"; then
-              echo "ndkVersion already exists."
-
-              sed -i 's/ndkVersion[[:space:]]*=.*/ndkVersion = "28.2.13676358"/' "$APP_GRADLE"
-
-            else
-              echo "Adding ndkVersion..."
-
-              if grep -q "android {" "$APP_GRADLE"; then
-                sed -i '/android {/a\    ndkVersion "28.2.13676358"' "$APP_GRADLE"
-              fi
-            fi
-
-          elif [ -f "$APP_GRADLE_KTS" ]; then
-
-            if grep -q "ndkVersion" "$APP_GRADLE_KTS"; then
-              echo "ndkVersion already exists."
-
-              sed -i 's/ndkVersion[[:space:]]*=.*/ndkVersion = "28.2.13676358"/' "$APP_GRADLE_KTS"
-
-            else
-              echo "Adding ndkVersion..."
-
-              if grep -q "android {" "$APP_GRADLE_KTS"; then
-                sed -i '/android {/a\    ndkVersion = "28.2.13676358"' "$APP_GRADLE_KTS"
-              fi
-            fi
+            echo "gradlew permission granted."
 
           else
-            echo "WARNING: Android app Gradle file tidak ditemukan."
+
+            echo "ERROR: gradlew tidak ditemukan!"
+            exit 1
+
           fi
 
-          # ==========================================
-          # FLUTTER CLEAN
-          # ==========================================
 
-          echo ""
-          echo "=========================================="
-          echo "FLUTTER CLEAN"
-          echo "=========================================="
+      # ==========================================
+      # SHOW GRADLE VERSION
+      # ==========================================
 
-          flutter clean
+      - name: Check Gradle
+        run: |
+          PROJECT_DIR=$(cat project_path.txt)
 
-          # ==========================================
-          # PUB GET
-          # ==========================================
+          cd "$PROJECT_DIR"
 
-          echo ""
-          echo "=========================================="
-          echo "FLUTTER PUB GET"
-          echo "=========================================="
+          ./gradlew --version
 
-          flutter pub get
 
-          # ==========================================
-          # VERIFY VERSIONS
-          # ==========================================
+      # ==========================================
+      # BUILD APK
+      # ==========================================
 
-          echo ""
-          echo "=========================================="
-          echo "VERIFY FLUTTER VERSION"
-          echo "=========================================="
+      - name: Build APK
+        env:
+          BUILD_TYPE: ${{ github.event.inputs.build_type }}
+        run: |
+          set -e
 
-          flutter --version
+          PROJECT_DIR=$(cat project_path.txt)
 
-          echo ""
-          echo "=========================================="
-          echo "VERIFY FONT AWESOME VERSION"
-          echo "=========================================="
-
-          flutter pub deps | grep font_awesome_flutter || true
-
-          # ==========================================
-          # BUILD APK
-          # ==========================================
+          cd "$PROJECT_DIR"
 
           echo ""
           echo "=========================================="
           echo "BUILDING APK"
           echo "=========================================="
 
+          echo "Build Type: $BUILD_TYPE"
+
+          if [ "$BUILD_TYPE" = "Release" ]; then
+
+            echo "Building RELEASE APK..."
+
+            ./gradlew clean
+
+            ./gradlew assembleRelease
+
+          else
+
+            echo "Building DEBUG APK..."
+
+            ./gradlew clean
+
+            ./gradlew assembleDebug
+
+          fi
+
+
+      # ==========================================
+      # FIND APK
+      # ==========================================
+
+      - name: Find APK
+        run: |
+          set -e
+
+          echo "=========================================="
+          echo "SEARCHING APK"
+          echo "=========================================="
+
+          find my_project -type f -name "*.apk" -print
+
+
           BUILD_TYPE="${{ github.event.inputs.build_type }}"
 
           if [ "$BUILD_TYPE" = "Release" ]; then
 
-            echo "Build type: RELEASE"
-
-            flutter build apk \
-              --release \
-              --android-skip-build-dependency-validation
+            APK_FILE=$(find my_project \
+              -type f \
+              -path "*/build/outputs/apk/release/*.apk" \
+              -print -quit)
 
           else
 
-            echo "Build type: DEBUG"
-
-            flutter build apk \
-              --debug \
-              --android-skip-build-dependency-validation
+            APK_FILE=$(find my_project \
+              -type f \
+              -path "*/build/outputs/apk/debug/*.apk" \
+              -print -quit)
 
           fi
 
-          # ==========================================
-          # CHECK APK
-          # ==========================================
 
-          echo ""
-          echo "=========================================="
-          echo "APK RESULT"
-          echo "=========================================="
+          if [ -z "$APK_FILE" ]; then
 
-          find build -type f -name "*.apk" -print
-
-          APK_COUNT=$(find build -type f -name "*.apk" | wc -l)
-
-          if [ "$APK_COUNT" -eq 0 ]; then
             echo "ERROR: APK tidak ditemukan!"
             exit 1
+
           fi
 
+
           echo ""
-          echo "APK berhasil dibuat."
+          echo "APK FOUND:"
+          echo "$APK_FILE"
+
+          cp "$APK_FILE" final.apk
+
+          echo "APK_PATH=final.apk" >> $GITHUB_ENV
+
+
+      # ==========================================
+      # UPLOAD ARTIFACT BACKUP
+      # ==========================================
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: final.apk
+          if-no-files-found: error
+
 
       # ==========================================
       # SEND APK TO TELEGRAM
       # ==========================================
+
       - name: Send APK to Telegram
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -281,44 +316,46 @@ jobs:
           set -e
 
           echo "=========================================="
-          echo "SEARCHING APK"
-          echo "=========================================="
-
-          APK_FILE=$(find . -type f -name "*.apk" -print -quit)
-
-          if [ -z "$APK_FILE" ]; then
-            echo "ERROR: APK tidak ditemukan!"
-            exit 1
-          fi
-
-          echo "APK:"
-          echo "$APK_FILE"
-
-          CAPTION="✅ Build ${BUILD_TYPE} Selesai!
-          📁 Project: ${APP_NAME}"
-
-          echo ""
-          echo "=========================================="
           echo "SENDING APK TO TELEGRAM"
           echo "=========================================="
 
-          if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
-            echo "ERROR: TELEGRAM_BOT_TOKEN secret belum tersedia!"
+
+          if [ ! -f "final.apk" ]; then
+
+            echo "ERROR: final.apk tidak ditemukan!"
             exit 1
+
           fi
 
+
+          if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+
+            echo "ERROR: TELEGRAM_BOT_TOKEN belum tersedia!"
+            exit 1
+
+          fi
+
+
           if [ -z "$CHAT_ID" ]; then
+
             echo "ERROR: Telegram User ID kosong!"
             exit 1
+
           fi
+
+
+          CAPTION="✅ Build ${BUILD_TYPE} Selesai!
+          📱 Project: ${APP_NAME}"
+
 
           curl -f \
             -F "chat_id=${CHAT_ID}" \
-            -F "document=@${APK_FILE}" \
+            -F "document=@final.apk" \
             -F "caption=${CAPTION}" \
             "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument"
 
+
           echo ""
           echo "=========================================="
-          echo "APK BERHASIL DIKIRIM KE TELEGRAM"
+          echo "APK BERHASIL DIKIRIM"
           echo "=========================================="
