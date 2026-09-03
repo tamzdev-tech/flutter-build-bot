@@ -5,119 +5,228 @@ on:
     inputs:
 
       zip_path:
-        description: 'Path to zip file'
+        description: "Path ZIP di repository"
         required: false
         type: string
 
       zip_url:
-        description: 'URL file ZIP'
+        description: "URL file ZIP project"
         required: false
         type: string
 
       app_name:
-        description: 'Nama Aplikasi'
+        description: "Nama aplikasi"
         required: false
-        default: 'Android App'
+        default: "Android App"
         type: string
 
       user_id:
-        description: 'ID Telegram User'
+        description: "Telegram User ID"
         required: false
         type: string
 
       build_type:
-        description: 'Debug or Release'
+        description: "Debug atau Release"
         required: false
-        default: 'Debug'
+        default: "Debug"
         type: string
 
 jobs:
   build:
+
     runs-on: ubuntu-latest
+
+    timeout-minutes: 360
 
     steps:
 
-      # ==========================================
+      # =====================================
       # CHECKOUT
-      # ==========================================
+      # =====================================
 
       - name: Checkout Repository
         uses: actions/checkout@v4
 
 
-      # ==========================================
-      # JAVA
-      # ==========================================
+      # =====================================
+      # JAVA 17
+      # =====================================
 
-      - name: Setup Java JDK
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
-          java-version: '17'
+          distribution: "zulu"
+          java-version: "17"
 
 
-      # ==========================================
-      # DOWNLOAD PROJECT ZIP
-      # ==========================================
+      # =====================================
+      # CEK STORAGE
+      # =====================================
 
-      - name: Download & Extract Android Project
+      - name: Check Disk Space
+        run: |
+
+          echo "================================="
+          echo "DISK SPACE"
+          echo "================================="
+
+          df -h
+
+
+      # =====================================
+      # DOWNLOAD ZIP
+      # =====================================
+
+      - name: Download Project ZIP
         env:
           ZIP_URL: ${{ github.event.inputs.zip_url }}
           ZIP_PATH: ${{ github.event.inputs.zip_path }}
+
         run: |
+
           set -e
 
-          echo "=========================================="
-          echo "DOWNLOAD ANDROID PROJECT"
-          echo "=========================================="
+          echo "================================="
+          echo "DOWNLOAD PROJECT"
+          echo "================================="
+
+          rm -f project.zip
 
           if [ -n "$ZIP_URL" ] && [ "$ZIP_URL" != "null" ]; then
 
             echo "Downloading ZIP from URL..."
+            echo "URL: $ZIP_URL"
 
-            curl -fL "$ZIP_URL" -o project.zip
+            curl \
+              -L \
+              --fail \
+              --retry 5 \
+              --retry-delay 5 \
+              --connect-timeout 30 \
+              --max-time 0 \
+              "$ZIP_URL" \
+              -o project.zip
 
           elif [ -n "$ZIP_PATH" ] && [ "$ZIP_PATH" != "null" ]; then
 
             echo "Using ZIP from repository..."
 
+            if [ ! -f "$ZIP_PATH" ]; then
+              echo "ERROR: ZIP_PATH tidak ditemukan!"
+              exit 1
+            fi
+
             cp "$ZIP_PATH" project.zip
 
           else
 
-            echo "ERROR: Tidak ada ZIP URL atau ZIP Path!"
+            echo "ERROR: zip_url dan zip_path kosong!"
             exit 1
 
           fi
 
 
           echo ""
-          echo "=========================================="
-          echo "EXTRACTING PROJECT"
-          echo "=========================================="
+          echo "================================="
+          echo "ZIP INFORMATION"
+          echo "================================="
 
-          rm -rf my_project
-          mkdir -p my_project
-
-          unzip -q project.zip -d my_project
-
+          ls -lh project.zip
 
           echo ""
-          echo "=========================================="
-          echo "SEARCHING GRADLE PROJECT"
-          echo "=========================================="
 
-          # Cari settings.gradle atau settings.gradle.kts
+          FILE_SIZE=$(du -h project.zip | cut -f1)
+
+          echo "ZIP SIZE: $FILE_SIZE"
+
+
+      # =====================================
+      # VALIDASI ZIP
+      # =====================================
+
+      - name: Validate ZIP
+        run: |
+
+          set -e
+
+          echo "================================="
+          echo "VALIDATING ZIP"
+          echo "================================="
+
+          unzip -t project.zip > /dev/null
+
+          echo "ZIP VALID"
+
+
+      # =====================================
+      # EXTRACT PROJECT
+      # =====================================
+
+      - name: Extract Project
+        run: |
+
+          set -e
+
+          echo "================================="
+          echo "EXTRACTING PROJECT"
+          echo "================================="
+
+          rm -rf my_project
+
+          mkdir -p my_project
+
+          unzip \
+            -q \
+            project.zip \
+            -d my_project
+
+
+      # =====================================
+      # HAPUS ZIP AGAR HEMAT STORAGE
+      # =====================================
+
+      - name: Cleanup ZIP
+        run: |
+
+          rm -f project.zip
+
+          echo "ZIP berhasil dihapus."
+
+
+      # =====================================
+      # CARI PROJECT GRADLE
+      # =====================================
+
+      - name: Find Android Gradle Project
+        run: |
+
+          set -e
+
+          echo "================================="
+          echo "SEARCHING ANDROID PROJECT"
+          echo "================================="
 
           PROJECT_FILE=$(find my_project \
             -type f \
-            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
-            -print -quit)
+            \( \
+              -name "settings.gradle" \
+              -o \
+              -name "settings.gradle.kts" \
+            \) \
+            -print \
+            -quit)
+
 
           if [ -z "$PROJECT_FILE" ]; then
 
-            echo "ERROR: Project Android Gradle tidak ditemukan!"
-            echo "settings.gradle tidak ditemukan."
+            echo "ERROR: Android Gradle project tidak ditemukan!"
+
+            echo ""
+            echo "Mencari pubspec.yaml..."
+
+            find my_project \
+              -type f \
+              -name "pubspec.yaml"
 
             exit 1
 
@@ -127,66 +236,72 @@ jobs:
           PROJECT_DIR=$(dirname "$PROJECT_FILE")
 
           echo ""
-          echo "PROJECT DIRECTORY:"
+          echo "PROJECT DIR:"
           echo "$PROJECT_DIR"
 
           echo "$PROJECT_DIR" > project_path.txt
 
 
-      # ==========================================
-      # SHOW PROJECT STRUCTURE
-      # ==========================================
+      # =====================================
+      # TAMPILKAN STRUKTUR
+      # =====================================
 
       - name: Check Project Structure
         run: |
+
           PROJECT_DIR=$(cat project_path.txt)
 
-          echo "=========================================="
+          echo "================================="
           echo "PROJECT STRUCTURE"
-          echo "=========================================="
+          echo "================================="
 
-          ls -la "$PROJECT_DIR"
+          ls -lah "$PROJECT_DIR"
 
           echo ""
-          echo "APP DIRECTORY:"
 
-          ls -la "$PROJECT_DIR/app" || true
+          if [ -d "$PROJECT_DIR/app" ]; then
 
-
-      # ==========================================
-      # FIX GRADLE PERMISSION
-      # ==========================================
-
-      - name: Setup Gradle Permission
-        run: |
-          PROJECT_DIR=$(cat project_path.txt)
-
-          cd "$PROJECT_DIR"
-
-          echo "=========================================="
-          echo "SETUP GRADLE"
-          echo "=========================================="
-
-          if [ -f "./gradlew" ]; then
-
-            chmod +x gradlew
-
-            echo "gradlew permission granted."
-
-          else
-
-            echo "ERROR: gradlew tidak ditemukan!"
-            exit 1
+            echo "APP FOLDER:"
+            ls -lah "$PROJECT_DIR/app"
 
           fi
 
 
-      # ==========================================
-      # SHOW GRADLE VERSION
-      # ==========================================
+      # =====================================
+      # SETUP GRADLE
+      # =====================================
 
-      - name: Check Gradle
+      - name: Setup Gradle
         run: |
+
+          set -e
+
+          PROJECT_DIR=$(cat project_path.txt)
+
+          cd "$PROJECT_DIR"
+
+          echo "================================="
+          echo "SETUP GRADLE"
+          echo "================================="
+
+          if [ ! -f "./gradlew" ]; then
+
+            echo "ERROR: gradlew tidak ditemukan!"
+
+            exit 1
+
+          fi
+
+          chmod +x gradlew
+
+
+      # =====================================
+      # CEK VERSI GRADLE
+      # =====================================
+
+      - name: Check Gradle Version
+        run: |
+
           PROJECT_DIR=$(cat project_path.txt)
 
           cd "$PROJECT_DIR"
@@ -194,76 +309,132 @@ jobs:
           ./gradlew --version
 
 
-      # ==========================================
+      # =====================================
+      # GRADLE CACHE
+      # =====================================
+
+      - name: Setup Gradle Cache
+        uses: actions/cache@v4
+        with:
+
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+
+          key: gradle-${{ runner.os }}-${{ github.run_id }}
+
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+
+      # =====================================
+      # CEK STORAGE SEBELUM BUILD
+      # =====================================
+
+      - name: Check Disk Before Build
+        run: |
+
+          echo "================================="
+          echo "DISK BEFORE BUILD"
+          echo "================================="
+
+          df -h
+
+
+      # =====================================
       # BUILD APK
-      # ==========================================
+      # =====================================
 
       - name: Build APK
         env:
+
           BUILD_TYPE: ${{ github.event.inputs.build_type }}
+
+          GRADLE_OPTS: >-
+            -Dorg.gradle.jvmargs=-Xmx6g
+            -Dorg.gradle.daemon=false
+            -Dorg.gradle.parallel=true
+            -Dorg.gradle.workers.max=4
+
         run: |
+
           set -e
 
           PROJECT_DIR=$(cat project_path.txt)
 
           cd "$PROJECT_DIR"
 
-          echo ""
-          echo "=========================================="
-          echo "BUILDING APK"
-          echo "=========================================="
+          echo "================================="
+          echo "BUILD APK"
+          echo "================================="
 
-          echo "Build Type: $BUILD_TYPE"
+          echo "BUILD TYPE: $BUILD_TYPE"
+
+          ./gradlew clean
+
 
           if [ "$BUILD_TYPE" = "Release" ]; then
 
-            echo "Building RELEASE APK..."
+            echo ""
+            echo "BUILDING RELEASE APK..."
 
-            ./gradlew clean
-
-            ./gradlew assembleRelease
+            ./gradlew \
+              assembleRelease \
+              --stacktrace \
+              --no-daemon
 
           else
 
-            echo "Building DEBUG APK..."
+            echo ""
+            echo "BUILDING DEBUG APK..."
 
-            ./gradlew clean
-
-            ./gradlew assembleDebug
+            ./gradlew \
+              assembleDebug \
+              --stacktrace \
+              --no-daemon
 
           fi
 
 
-      # ==========================================
-      # FIND APK
-      # ==========================================
+      # =====================================
+      # CARI APK
+      # =====================================
 
       - name: Find APK
         run: |
+
           set -e
 
-          echo "=========================================="
+          echo "================================="
           echo "SEARCHING APK"
-          echo "=========================================="
+          echo "================================="
 
-          find my_project -type f -name "*.apk" -print
+          echo ""
+
+          find my_project \
+            -type f \
+            -name "*.apk" \
+            -print
 
 
           BUILD_TYPE="${{ github.event.inputs.build_type }}"
+
 
           if [ "$BUILD_TYPE" = "Release" ]; then
 
             APK_FILE=$(find my_project \
               -type f \
               -path "*/build/outputs/apk/release/*.apk" \
-              -print -quit)
+              -print \
+              -quit)
 
           else
 
             APK_FILE=$(find my_project \
               -type f \
               -path "*/build/outputs/apk/debug/*.apk" \
-              -print -quit)
+              -print \
+              -quit)
 
           fi
 
@@ -271,6 +442,7 @@ jobs:
           if [ -z "$APK_FILE" ]; then
 
             echo "ERROR: APK tidak ditemukan!"
+
             exit 1
 
           fi
@@ -280,44 +452,65 @@ jobs:
           echo "APK FOUND:"
           echo "$APK_FILE"
 
+
           cp "$APK_FILE" final.apk
+
+
+          echo ""
+
+          echo "APK SIZE:"
+
+          ls -lh final.apk
+
 
           echo "APK_PATH=final.apk" >> $GITHUB_ENV
 
 
-      # ==========================================
-      # UPLOAD ARTIFACT BACKUP
-      # ==========================================
+      # =====================================
+      # UPLOAD ARTIFACT
+      # =====================================
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: android-apk
+
+          name: android-apk-${{ github.run_id }}
+
           path: final.apk
+
           if-no-files-found: error
 
+          retention-days: 3
 
-      # ==========================================
-      # SEND APK TO TELEGRAM
-      # ==========================================
+
+      # =====================================
+      # SEND APK TELEGRAM
+      # =====================================
 
       - name: Send APK to Telegram
         env:
+
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+
           CHAT_ID: ${{ github.event.inputs.user_id }}
+
           APP_NAME: ${{ github.event.inputs.app_name }}
+
           BUILD_TYPE: ${{ github.event.inputs.build_type }}
+
         run: |
+
           set -e
 
-          echo "=========================================="
-          echo "SENDING APK TO TELEGRAM"
-          echo "=========================================="
+          echo "================================="
+          echo "SEND APK TO TELEGRAM"
+          echo "================================="
 
 
           if [ ! -f "final.apk" ]; then
 
             echo "ERROR: final.apk tidak ditemukan!"
+
             exit 1
 
           fi
@@ -325,7 +518,8 @@ jobs:
 
           if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
 
-            echo "ERROR: TELEGRAM_BOT_TOKEN belum tersedia!"
+            echo "ERROR: TELEGRAM_BOT_TOKEN kosong!"
+
             exit 1
 
           fi
@@ -334,16 +528,27 @@ jobs:
           if [ -z "$CHAT_ID" ]; then
 
             echo "ERROR: Telegram User ID kosong!"
+
             exit 1
 
           fi
 
 
-          CAPTION="✅ Build ${BUILD_TYPE} Selesai!
-          📱 Project: ${APP_NAME}"
+          APK_SIZE=$(du -h final.apk | cut -f1)
 
 
-          curl -f \
+          CAPTION="✅ Build ${BUILD_TYPE} Berhasil!
+
+📱 Project: ${APP_NAME}
+📦 Size: ${APK_SIZE}"
+
+
+          echo "Mengirim APK..."
+
+
+          curl \
+            --fail \
+            --retry 3 \
             -F "chat_id=${CHAT_ID}" \
             -F "document=@final.apk" \
             -F "caption=${CAPTION}" \
@@ -351,6 +556,23 @@ jobs:
 
 
           echo ""
-          echo "=========================================="
+
+          echo "================================="
           echo "APK BERHASIL DIKIRIM"
-          echo "=========================================="
+          echo "================================="
+
+
+      # =====================================
+      # STORAGE INFO
+      # =====================================
+
+      - name: Final Disk Check
+        if: always()
+
+        run: |
+
+          echo "================================="
+          echo "FINAL DISK SPACE"
+          echo "================================="
+
+          df -h
