@@ -1,4 +1,4 @@
-name: Build Android APK & Send to Telegram
+name: Build Flutter APK & Send to Telegram
 
 on:
   workflow_dispatch:
@@ -10,14 +10,14 @@ on:
         type: string
 
       zip_url:
-        description: "URL file ZIP project"
+        description: "URL file ZIP project Flutter"
         required: false
         type: string
 
       app_name:
         description: "Nama aplikasi"
         required: false
-        default: "Android App"
+        default: "Flutter App"
         type: string
 
       user_id:
@@ -49,7 +49,7 @@ jobs:
 
 
       # =====================================
-      # JAVA 17
+      # SETUP JAVA
       # =====================================
 
       - name: Setup Java
@@ -60,7 +60,30 @@ jobs:
 
 
       # =====================================
-      # CEK STORAGE
+      # SETUP FLUTTER
+      # =====================================
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+
+      # =====================================
+      # CHECK FLUTTER
+      # =====================================
+
+      - name: Check Flutter Version
+        run: |
+
+          flutter --version
+
+          flutter doctor -v
+
+
+      # =====================================
+      # CHECK STORAGE
       # =====================================
 
       - name: Check Disk Space
@@ -87,15 +110,15 @@ jobs:
           set -e
 
           echo "================================="
-          echo "DOWNLOAD PROJECT"
+          echo "DOWNLOAD FLUTTER PROJECT"
           echo "================================="
 
           rm -f project.zip
 
+
           if [ -n "$ZIP_URL" ] && [ "$ZIP_URL" != "null" ]; then
 
             echo "Downloading ZIP from URL..."
-            echo "URL: $ZIP_URL"
 
             curl \
               -L \
@@ -103,45 +126,45 @@ jobs:
               --retry 5 \
               --retry-delay 5 \
               --connect-timeout 30 \
-              --max-time 0 \
               "$ZIP_URL" \
               -o project.zip
+
 
           elif [ -n "$ZIP_PATH" ] && [ "$ZIP_PATH" != "null" ]; then
 
             echo "Using ZIP from repository..."
 
             if [ ! -f "$ZIP_PATH" ]; then
-              echo "ERROR: ZIP_PATH tidak ditemukan!"
+
+              echo "ERROR: ZIP tidak ditemukan!"
+
               exit 1
+
             fi
 
             cp "$ZIP_PATH" project.zip
 
+
           else
 
             echo "ERROR: zip_url dan zip_path kosong!"
+
             exit 1
 
           fi
 
 
           echo ""
+
           echo "================================="
           echo "ZIP INFORMATION"
           echo "================================="
 
           ls -lh project.zip
 
-          echo ""
-
-          FILE_SIZE=$(du -h project.zip | cut -f1)
-
-          echo "ZIP SIZE: $FILE_SIZE"
-
 
       # =====================================
-      # VALIDASI ZIP
+      # VALIDATE ZIP
       # =====================================
 
       - name: Validate ZIP
@@ -162,7 +185,7 @@ jobs:
       # EXTRACT PROJECT
       # =====================================
 
-      - name: Extract Project
+      - name: Extract Flutter Project
         run: |
 
           set -e
@@ -182,7 +205,7 @@ jobs:
 
 
       # =====================================
-      # HAPUS ZIP AGAR HEMAT STORAGE
+      # DELETE ZIP
       # =====================================
 
       - name: Cleanup ZIP
@@ -194,56 +217,59 @@ jobs:
 
 
       # =====================================
-      # CARI PROJECT GRADLE
+      # FIND PUBSPEC
       # =====================================
 
-      - name: Find Android Gradle Project
+      - name: Find Flutter Project
         run: |
 
           set -e
 
           echo "================================="
-          echo "SEARCHING ANDROID PROJECT"
+          echo "SEARCHING PUBSPEC.YAML"
           echo "================================="
 
-          PROJECT_FILE=$(find my_project \
+
+          PUBSPEC_FILE=$(find my_project \
             -type f \
-            \( \
-              -name "settings.gradle" \
-              -o \
-              -name "settings.gradle.kts" \
-            \) \
+            -name "pubspec.yaml" \
             -print \
             -quit)
 
 
-          if [ -z "$PROJECT_FILE" ]; then
+          if [ -z "$PUBSPEC_FILE" ]; then
 
-            echo "ERROR: Android Gradle project tidak ditemukan!"
+            echo "ERROR: pubspec.yaml tidak ditemukan!"
 
             echo ""
-            echo "Mencari pubspec.yaml..."
+
+            echo "PROJECT STRUCTURE:"
 
             find my_project \
+              -maxdepth 3 \
               -type f \
-              -name "pubspec.yaml"
+              | head -100
 
             exit 1
 
           fi
 
 
-          PROJECT_DIR=$(dirname "$PROJECT_FILE")
+          PROJECT_DIR=$(dirname "$PUBSPEC_FILE")
+
 
           echo ""
-          echo "PROJECT DIR:"
+
+          echo "FLUTTER PROJECT FOUND:"
+
           echo "$PROJECT_DIR"
+
 
           echo "$PROJECT_DIR" > project_path.txt
 
 
       # =====================================
-      # TAMPILKAN STRUKTUR
+      # SHOW PROJECT
       # =====================================
 
       - name: Check Project Structure
@@ -252,26 +278,17 @@ jobs:
           PROJECT_DIR=$(cat project_path.txt)
 
           echo "================================="
-          echo "PROJECT STRUCTURE"
+          echo "FLUTTER PROJECT STRUCTURE"
           echo "================================="
 
           ls -lah "$PROJECT_DIR"
 
-          echo ""
-
-          if [ -d "$PROJECT_DIR/app" ]; then
-
-            echo "APP FOLDER:"
-            ls -lah "$PROJECT_DIR/app"
-
-          fi
-
 
       # =====================================
-      # SETUP GRADLE
+      # FLUTTER PUB GET
       # =====================================
 
-      - name: Setup Gradle
+      - name: Install Flutter Dependencies
         run: |
 
           set -e
@@ -280,65 +297,31 @@ jobs:
 
           cd "$PROJECT_DIR"
 
+
           echo "================================="
-          echo "SETUP GRADLE"
+          echo "FLUTTER PUB GET"
           echo "================================="
 
-          if [ ! -f "./gradlew" ]; then
 
-            echo "ERROR: gradlew tidak ditemukan!"
-
-            exit 1
-
-          fi
-
-          chmod +x gradlew
+          flutter pub get
 
 
       # =====================================
-      # CEK VERSI GRADLE
+      # CLEAN BUILD
       # =====================================
 
-      - name: Check Gradle Version
+      - name: Clean Flutter Build
         run: |
 
           PROJECT_DIR=$(cat project_path.txt)
 
           cd "$PROJECT_DIR"
 
-          ./gradlew --version
+
+          flutter clean
 
 
-      # =====================================
-      # GRADLE CACHE
-      # =====================================
-
-      - name: Setup Gradle Cache
-        uses: actions/cache@v4
-        with:
-
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-
-          key: gradle-${{ runner.os }}-${{ github.run_id }}
-
-          restore-keys: |
-            gradle-${{ runner.os }}-
-
-
-      # =====================================
-      # CEK STORAGE SEBELUM BUILD
-      # =====================================
-
-      - name: Check Disk Before Build
-        run: |
-
-          echo "================================="
-          echo "DISK BEFORE BUILD"
-          echo "================================="
-
-          df -h
+          flutter pub get
 
 
       # =====================================
@@ -350,54 +333,49 @@ jobs:
 
           BUILD_TYPE: ${{ github.event.inputs.build_type }}
 
-          GRADLE_OPTS: >-
-            -Dorg.gradle.jvmargs=-Xmx6g
-            -Dorg.gradle.daemon=false
-            -Dorg.gradle.parallel=true
-            -Dorg.gradle.workers.max=4
-
         run: |
 
           set -e
+
 
           PROJECT_DIR=$(cat project_path.txt)
 
           cd "$PROJECT_DIR"
 
+
           echo "================================="
-          echo "BUILD APK"
+          echo "BUILDING FLUTTER APK"
           echo "================================="
 
-          echo "BUILD TYPE: $BUILD_TYPE"
 
-          ./gradlew clean
+          echo "Build Type: $BUILD_TYPE"
 
 
           if [ "$BUILD_TYPE" = "Release" ]; then
 
-            echo ""
-            echo "BUILDING RELEASE APK..."
 
-            ./gradlew \
-              assembleRelease \
-              --stacktrace \
-              --no-daemon
+            echo "Building RELEASE APK..."
+
+
+            flutter build apk \
+              --release
+
 
           else
 
-            echo ""
-            echo "BUILDING DEBUG APK..."
 
-            ./gradlew \
-              assembleDebug \
-              --stacktrace \
-              --no-daemon
+            echo "Building DEBUG APK..."
+
+
+            flutter build apk \
+              --debug
+
 
           fi
 
 
       # =====================================
-      # CARI APK
+      # FIND APK
       # =====================================
 
       - name: Find APK
@@ -405,16 +383,13 @@ jobs:
 
           set -e
 
+
+          PROJECT_DIR=$(cat project_path.txt)
+
+
           echo "================================="
           echo "SEARCHING APK"
           echo "================================="
-
-          echo ""
-
-          find my_project \
-            -type f \
-            -name "*.apk" \
-            -print
 
 
           BUILD_TYPE="${{ github.event.inputs.build_type }}"
@@ -422,26 +397,45 @@ jobs:
 
           if [ "$BUILD_TYPE" = "Release" ]; then
 
-            APK_FILE=$(find my_project \
-              -type f \
-              -path "*/build/outputs/apk/release/*.apk" \
-              -print \
-              -quit)
+
+            APK_FILE="$PROJECT_DIR/build/app/outputs/flutter-apk/app-release.apk"
+
 
           else
 
-            APK_FILE=$(find my_project \
-              -type f \
-              -path "*/build/outputs/apk/debug/*.apk" \
-              -print \
-              -quit)
+
+            APK_FILE="$PROJECT_DIR/build/app/outputs/flutter-apk/app-debug.apk"
+
 
           fi
 
 
-          if [ -z "$APK_FILE" ]; then
+          if [ ! -f "$APK_FILE" ]; then
+
+
+            echo "APK default path tidak ditemukan."
+
+
+            echo ""
+
+            echo "Searching manually..."
+
+
+            APK_FILE=$(find "$PROJECT_DIR/build" \
+              -type f \
+              -name "*.apk" \
+              -print \
+              -quit)
+
+
+          fi
+
+
+          if [ -z "$APK_FILE" ] || [ ! -f "$APK_FILE" ]; then
+
 
             echo "ERROR: APK tidak ditemukan!"
+
 
             exit 1
 
@@ -449,7 +443,10 @@ jobs:
 
 
           echo ""
+
           echo "APK FOUND:"
+
+
           echo "$APK_FILE"
 
 
@@ -458,7 +455,9 @@ jobs:
 
           echo ""
 
+
           echo "APK SIZE:"
+
 
           ls -lh final.apk
 
@@ -474,7 +473,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
 
-          name: android-apk-${{ github.run_id }}
+          name: flutter-apk-${{ github.run_id }}
 
           path: final.apk
 
@@ -484,7 +483,7 @@ jobs:
 
 
       # =====================================
-      # SEND APK TELEGRAM
+      # SEND TELEGRAM
       # =====================================
 
       - name: Send APK to Telegram
@@ -501,6 +500,7 @@ jobs:
         run: |
 
           set -e
+
 
           echo "================================="
           echo "SEND APK TO TELEGRAM"
@@ -543,12 +543,13 @@ jobs:
 📦 Size: ${APK_SIZE}"
 
 
-          echo "Mengirim APK..."
+          echo "Mengirim APK ke Telegram..."
 
 
           curl \
             --fail \
             --retry 3 \
+            --max-time 0 \
             -F "chat_id=${CHAT_ID}" \
             -F "document=@final.apk" \
             -F "caption=${CAPTION}" \
@@ -559,11 +560,11 @@ jobs:
 
           echo "================================="
           echo "APK BERHASIL DIKIRIM"
-          echo "================================="
+          echo "=================================="
 
 
       # =====================================
-      # STORAGE INFO
+      # FINAL STORAGE CHECK
       # =====================================
 
       - name: Final Disk Check
